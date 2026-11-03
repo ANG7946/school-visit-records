@@ -1,7 +1,7 @@
 /* 入校輔導紀錄｜階段 B：可離線使用的個人版 */
 (async () => {
 'use strict';
-const APP_VERSION = '0.4.0';
+const APP_VERSION = '0.4.1';
 const SCHEMA = 1;
 const FILE_FORMAT = 'school-visit-record';
 const TZ = 'Asia/Taipei';
@@ -175,7 +175,7 @@ function renderHome(){
       return `<div class="school" style="padding:4px 0"><button class="linkish grow" data-school="${s.schoolId}"><div class="name">${esc(s.short||s.name)}${s.demo?' <span class="tag">示範</span>':''}</div>
         <div class="muted tiny">${esc(s.city)} · ${esc(s.name)}${last?` · 上次 ${rocShort(last.date)}（第 ${last.visitNo??'?'} 次）`:''}</div>
         ${fu.length?`<div class="tiny" style="color:var(--warn)">上次未完成 ${fu.length} 項：${esc(fu[0].text)}${fu.length>1?' 等':''}</div>`:''}</button>
-        ${a?`<button class="btn" data-open="${a.visitId}">繼續</button>`:`<button class="btn primary" data-start="${s.schoolId}">開始${esc(s.short||s.name)}輔導</button>`}</div>`; }).join('')
+        <div class="row" style="gap:8px"><button class="btn small" data-school="${s.schoolId}">學校資料</button>${a?`<button class="btn" data-open="${a.visitId}">繼續</button>`:`<button class="btn primary" data-start="${s.schoolId}">開始${esc(s.short||s.name)}輔導</button>`}</div></div>`; }).join('')
     : `<p class="muted" style="margin:0">${arch.length?'所有學校皆已封存。':'尚未建立學校。可先「立即筆記」，或新增學校。'}</p>`)
     + (arch.length ? `<details><summary class="tiny muted">已封存 ${arch.length} 所</summary>${arch.map(s => `<div class="list-item"><button class="linkish grow" data-school="${s.schoolId}">${esc(s.short||s.name)} <span class="muted tiny">${esc(s.name)}</span></button></div>`).join('')}</details>` : '');
   const past = S.visits.filter(v => v.status==='ended').sort((a,b) => a.actualStart < b.actualStart ? 1 : -1);
