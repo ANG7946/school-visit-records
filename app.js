@@ -1,7 +1,7 @@
 /* 入校輔導紀錄｜階段 B：可離線使用的個人版 */
 (async () => {
 'use strict';
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.3.0';
 const SCHEMA = 1;
 const FILE_FORMAT = 'school-visit-record';
 const TZ = 'Asia/Taipei';
@@ -277,7 +277,7 @@ const TITLES = {overview:'學校推動概況',basic:'基本資料與輔導類別
   recordings:'錄音參照',report:'輔導觀察與綜合建議',export:'匯出',school:'學校資料',import:'匯入預覽'};
 function openSheet(kind, opt={}){
   if(!$('visit').hidden) { restoreFocus = document.activeElement===ta ? [ta.selectionStart,ta.selectionEnd] : null; flushDraft(); }
-  sheetKind = kind; sheetCtx = opt;
+  sheetKind = kind; sheetCtx = opt; if(kind==='overview') kp = {code:null, fresh:true};
   $('sheetTitle').textContent = TITLES[kind];
   $('sheet').hidden = false; $('sheet').scrollTop = 0;
   renderSheet(opt);
@@ -327,9 +327,98 @@ function fieldRow(f, v){
     ${carry}${carried}
   </div>`;
 }
+/* 現場速填：依話題分組的磚格＋自帶數字鍵盤（不叫出系統鍵盤） */
+const QUICK = [
+ ['人員', ['participants','teacherTotal','leads']],
+ ['四學教學模式', ['guidedClasses','collaborativeClasses','balancedClasses','selfDirectedClasses','fourLearningTeachers','subjectCount']],
+ ['增能與社群', ['advancedTrainingTeachers','communityCount','communityTeachers']],
+ ['平臺與 AI', ['platformTeachers','aiTeachers']],
+ ['本學期活動', ['semesterSharingEvents','semesterExternalTeachers']],
+];
+const SHORT = {participants:'參與人數',teacherTotal:'教師總數',leads:'主導人員',guidedClasses:'高引導式',collaborativeClasses:'高協作式',balancedClasses:'平衡式',selfDirectedClasses:'高自學式',
+  fourLearningTeachers:'四學教師',subjectCount:'涵蓋學科',advancedTrainingTeachers:'進階研習教師',communityCount:'社群數',communityTeachers:'社群參與教師',
+  platformTeachers:'用平臺教師',aiTeachers:'AI 融入教師',semesterSharingEvents:'分享推廣場次',semesterExternalTeachers:'校外活動教師'};
+const QORDER = QUICK.flatMap(g => g[1]);
+let kp = {code:null, fresh:true};
+function carryable(code, v){
+  const f = FMAP[code], pv = prevVisit(v), pf = pv && pv.fields[code];
+  if(!pf || pf.value==null) return null;
+  if(f.semester && pv.semester!==v.semester) return null;
+  return {pv, pf};
+}
+function tileHTML(code, v){
+  const f = FMAP[code], fv = v.fields[code], asked = !!v.ask[code], c = carryable(code, v);
+  let val;
+  if(fv.status==='pending') val = '待查';
+  else if(fv.value!=null) val = f.type==='text' ? String(fv.value).split('\n')[0] : (fv.status==='estimate'?'約':'') + fv.value;
+  else val = fv.status==='estimate' ? '約？' : '—';
+  const prev = c && fv.status==='none' ? `<span class="tprev">前次 ${c.pf.status==='estimate'?'約':''}${esc(String(c.pf.value).split('\n')[0])}</span>` : '';
+  return `<button class="tile st-${fv.status}${kp.code===code?' on':''}" data-tile="${code}" aria-label="${esc(SHORT[code])}">
+    <span class="tl">${f.no?`<i>${f.no}</i>`:''}${esc(SHORT[code])}</span>
+    <span class="tv">${esc(val)}${f.type!=='text'&&fv.value!=null?`<small>${f.unit}</small>`:''}</span>${prev}
+    ${asked?'<span class="tflag">補</span>':''}</button>`;
+}
+function keypadHTML(v){
+  if(!kp.code) return `<div class="kpad" id="kpad"><div class="muted" style="text-align:center;padding:14px 0">點上方任一格開始輸入。數字會即時存檔，不必按完成。</div></div>`;
+  const f = FMAP[kp.code], fv = v.fields[kp.code], c = carryable(kp.code, v), asked = !!v.ask[kp.code];
+  const last = QORDER.indexOf(kp.code) === QORDER.length-1;
+  const title = `${f.no?f.no+'. ':''}${esc(f.label)}${f.sub?'<b>－'+esc(f.sub)+'</b>':''}`;
+  const disp = fv.status==='pending' ? '<span style="color:var(--warn)">待查</span>'
+    : fv.value!=null ? `${fv.status==='estimate'?'<span style="color:var(--accent)">約</span>':''}${esc(f.type==='text'?'':fv.value)}<small>${f.type==='text'?'':f.unit}</small>`
+    : `<span class="muted">${fv.status==='estimate'?'約 ？':'—'}</span>`;
+  const side = `
+      <button class="key fn" data-kp="ask" aria-pressed="${asked}">請校方補</button>
+      <button class="key fn" data-kp="carry" ${c&&fv.status==='none'?'':'disabled'}>${c?`沿用前次<small>${c.pf.status==='estimate'?'約':''}${esc(String(c.pf.value).split('\n')[0])}</small>`:'沿用前次'}</button>
+      <button class="key fn next" data-kp="next">${last?'完成':'下一格 ▸'}</button>`;
+  if(f.type==='text') return `<div class="kpad" id="kpad">
+    <div class="ktitle">${title}</div>
+    <textarea id="fv-${f.code}" data-fv="${f.code}" rows="2" placeholder="姓名＋職稱，多人可分行；也可先按待查或請校方補">${esc(fv.value??'')}</textarea>
+    <div class="kside" style="margin-top:8px"><button class="key fn" data-kp="pending" aria-pressed="${fv.status==='pending'}">待查</button>${side}</div></div>`;
+  return `<div class="kpad" id="kpad">
+    <div class="ktop"><div class="ktitle grow">${title}</div><div class="kdisp">${disp}</div></div>
+    ${fv.status==='estimate'&&fv.value==null?'<div class="tiny" style="color:var(--danger);margin-bottom:6px">估計需填數值</div>':''}
+    <div class="kbody">
+      <div class="kgrid">${['1','2','3','4','5','6','7','8','9'].map(d=>`<button class="key" data-kp="d" data-d="${d}">${d}</button>`).join('')}
+        <button class="key fn" data-kp="clear">清除</button><button class="key" data-kp="d" data-d="0">0</button><button class="key fn" data-kp="bs" aria-label="刪除">⌫</button></div>
+      <div class="kside">
+        <button class="key fn" data-kp="est" aria-pressed="${fv.status==='estimate'}">約（估計）</button>
+        <button class="key fn" data-kp="pending" aria-pressed="${fv.status==='pending'}">待查</button>${side}
+      </div>
+    </div></div>`;
+}
+function quickHTML(v){
+  return `<div id="quickWrap">${QUICK.map(([g, codes]) => `<div class="qgroup"><h3>${g}</h3><div class="qgrid">${codes.map(c => tileHTML(c, v)).join('')}</div></div>`).join('')}
+    ${keypadHTML(v)}</div>`;
+}
+function refreshQuick(){ const w = $('quickWrap'); if(w){ const d = document.createElement('div'); d.innerHTML = quickHTML(cur()); w.replaceWith(d.firstElementChild); } }
+function numSet(code, s){
+  const v = cur(), fv = v.fields[code];
+  delete fv.carriedFrom; delete fv.confirmedAt;
+  fv.value = s==='' ? null : parseInt(s, 10);
+  if(fv.value!=null){ if(fv.status!=='estimate') fv.status = 'confirmed'; if(!fv.source) fv.source = '校方口述'; fv.confirmedDate = ymd(now()); }
+  else if(fv.status!=='estimate') fv.status = 'none';
+  touch('visits', v); persist();
+}
+function keypadPress(act, d){
+  const v = cur(), code = kp.code; if(!code) return;
+  const fv = v.fields[code];
+  switch(act){
+    case 'd':{ if(fv.status==='pending') fv.status = 'none'; let s = kp.fresh ? '' : (fv.value==null ? '' : String(fv.value)); kp.fresh = false; s = (s + d).replace(/^0+(?=\d)/, ''); if(s.length > 5) return; numSet(code, s); break; }
+    case 'bs': kp.fresh = false; numSet(code, String(fv.value ?? '').slice(0, -1)); break;
+    case 'clear': kp.fresh = true; fv.status = 'none'; numSet(code, ''); break;
+    case 'est': fv.status = fv.status==='estimate' ? (fv.value!=null ? 'confirmed' : 'none') : 'estimate'; touch('visits', v); persist(); break;
+    case 'pending': if(fv.status==='pending'){ fv.status = 'none'; } else { fv.status = 'pending'; fv.value = null; } kp.fresh = true; touch('visits', v); persist(); break;
+    case 'ask': if(v.ask[code]) delete v.ask[code]; else v.ask[code] = true; touch('visits', v); persist(); break;
+    case 'carry':{ const c = carryable(code, v); if(!c) return; v.fields[code] = {value:c.pf.value,status:c.pf.status==='estimate'?'estimate':'confirmed',source:c.pf.source,carriedFrom:c.pv.visitId,confirmedAt:now(),confirmedDate:ymd(now())}; touch('visits', v); persist(); toast('已沿用前次'); break; }
+    case 'next':{ const i = QORDER.indexOf(code); kp.code = i < QORDER.length-1 ? QORDER[i+1] : null; kp.fresh = true; break; }
+  }
+  refreshQuick();
+}
 function overviewHTML(){
-  const v = cur();
-  return `<p class="muted tiny" style="margin-top:14px">數字可稍後補。0 表示確認為零；留白為未記錄。「估計」在 Word 中加「約」；「待查」顯示為待查。前次數值須按「確認沿用」才會寫入本次；第 9、10 項跨學期不沿用。</p>
+  const v = cur(), mode = settings.overviewMode || 'quick';
+  const seg = `<div class="seg" role="tablist"><button data-ovmode="quick" aria-pressed="${mode==='quick'}">現場速填</button><button data-ovmode="full" aria-pressed="${mode==='full'}">完整整理</button></div>`;
+  if(mode==='quick') return seg + quickHTML(v);
+  return seg + `<p class="muted tiny" style="margin-top:14px">數字可稍後補。0 表示確認為零；留白為未記錄。「估計」在 Word 中加「約」；「待查」顯示為待查。前次數值須按「確認沿用」才會寫入本次；第 9、10 項跨學期不沿用。</p>
    <div class="card">${T2.map(f => fieldRow(f, v)).join('')}</div>`;
 }
 function rerow(code){ const el = $('row-'+code); if(el){ const d = document.createElement('div'); d.innerHTML = fieldRow(FMAP[code], cur()); el.replaceWith(d.firstElementChild); } }
@@ -707,6 +796,9 @@ document.addEventListener('click', async e => {
   if(d.fu){ const n = S.notes.find(x => x.noteId===d.fu); const f = {id:uid(),visitId:v.visitId,schoolId:v.schoolId,noteId:n.noteId,text:n.text||`時間標記 ${hm(n.createdAt)} 待補說明`,status:'open',doneAt:null,doneVisitId:null,createdAt:now()};
     S.followUps.push(f); touch('followUps', f); await persist(); toast('已加入下次追蹤'); sheetKind ? renderSheet({}) : renderVisit(); return; }
   if(d.gonote){ if(d.govisit!==ui.visitId){ $('sheet').hidden = true; sheetKind = null; openVisit(d.govisit); } openSheet('timeline'); const el = $('note-'+d.gonote); if(el){ el.scrollIntoView({block:'center'}); el.classList.add('flash'); } return; }
+  if(d.tile){ kp.code = d.tile; kp.fresh = true; refreshQuick(); if(FMAP[d.tile].type==='text'){ const t2 = $('fv-'+d.tile); t2 && t2.focus(); } return; }
+  if(d.kp){ keypadPress(d.kp, d.d); return; }
+  if(d.ovmode){ settings.overviewMode = d.ovmode; saveMeta('settings', settings); renderSheet({}); return; }
   if(d.st){ const fv = v.fields[d.st]; if(fv.status===d.val){ fv.status = fv.value!=null ? 'confirmed' : 'none'; } else { fv.status = d.val; if(d.val==='pending') fv.value = null; } touch('visits', v); persist(); rerow(d.st); return; }
   if(d.ask){ v.ask[d.ask] = !v.ask[d.ask]; if(!v.ask[d.ask]) delete v.ask[d.ask]; touch('visits', v); persist(); rerow(d.ask); return; }
   if(d.carry){ const pv = prevVisit(v), pf = pv.fields[d.carry]; v.fields[d.carry] = {value:pf.value,status:pf.status==='estimate'?'estimate':'confirmed',source:pf.source,carriedFrom:pv.visitId,confirmedAt:now(),confirmedDate:ymd(now())}; touch('visits', v); persist(); rerow(d.carry); toast('已沿用，可再修改'); return; }
@@ -807,6 +899,7 @@ let rpTimer = null;
 document.addEventListener('input', e => {
   const t = e.target, d = t.dataset;
   if(d.fv){ const clean = setVal(d.fv, t.value); if(clean!==undefined && clean!==t.value) t.value = clean; persist();
+    const tile = document.querySelector(`[data-tile="${d.fv}"]`); if(tile){ const x = document.createElement('div'); x.innerHTML = tileHTML(d.fv, cur()); tile.replaceWith(x.firstElementChild); }
     const row = $('row-'+d.fv), tag = row && row.querySelector('.tag'), fv = cur().fields[d.fv];
     if(tag){ tag.textContent = STATUS[fv.status]; tag.className = 'tag '+(fv.status==='confirmed'?'ok':fv.status==='estimate'?'acc':fv.status==='pending'?'warn':''); }
     if(row){ row.querySelectorAll('[data-st]').forEach(c => c.setAttribute('aria-pressed', String(fv.status===c.dataset.val)));

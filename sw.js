@@ -1,5 +1,5 @@
 /* 入校輔導紀錄｜Service Worker：預快取介面、套表程式與 Word 樣板。紀錄存於 IndexedDB，不受快取更新影響。 */
-const VERSION = 'v0.2.0';
+const VERSION = 'v0.3.0';
 const CACHE = 'school-visit-' + VERSION;
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'store.js', 'docx-fill.js', 'vendor/jszip.min.js', 'template.docx',
   'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
