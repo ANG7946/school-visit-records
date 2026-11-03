@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>入校輔導紀錄</title>
+<meta name="theme-color" content="#1c6270">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="入校輔導">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="banner" id="banner" hidden></div>
+
+<!-- ===================== 首頁 ===================== -->
+<section id="home" hidden>
+  <div class="bar"><div class="wrap">
+    <h1>入校輔導紀錄<small id="homeSub"></small></h1>
+    <div class="save" id="saveHome"></div>
+    <button class="btn small ghost" id="openSettings">設定</button>
+  </div></div>
+  <div class="wrap">
+    <div id="activeArea"></div>
+    <h2>開始訪視</h2>
+    <div class="card stack" id="schoolList"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn grow" id="quickNote">立即筆記（稍後歸校）</button>
+      <button class="btn" id="addSchoolBtn">新增學校</button>
+    </div>
+    <div id="addSchoolForm" class="card stack" style="margin-top:10px" hidden>
+      <div class="grid2">
+        <label class="kv"><span>縣市</span><input type="text" id="nsCity" placeholder="例：高雄市"></label>
+        <label class="kv"><span>簡稱（可留白）</span><input type="text" id="nsShort" placeholder="例：甲國小"></label>
+      </div>
+      <label class="kv"><span>正式校名</span><input type="text" id="nsName" placeholder="例：高雄市立示範甲國民小學"></label>
+      <div class="row"><button class="btn primary" id="nsSave">儲存學校</button><button class="btn ghost" id="nsCancel">取消</button></div>
+    </div>
+    <h2>已結束的訪視</h2>
+    <div class="card" id="pastList"></div>
+    <h2>交接</h2>
+    <div class="card stack">
+      <div class="muted tiny">從 iPad 匯出的訪視檔，可在這裡匯入電腦續編；反之亦然。</div>
+      <div class="row">
+        <label class="btn grow" for="importFile">匯入訪視檔或備份…</label>
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+        <button class="btn" id="exportAll">匯出全部備份</button>
+      </div>
+    </div>
+    <p class="footnote" id="offlineState"></p>
+  </div>
+</section>
+
+<!-- ===================== 訪視中 ===================== -->
+<section id="visit" hidden>
+  <div class="bar"><div class="wrap">
+    <button class="btn small ghost" id="backHome" aria-label="回首頁">首頁</button>
+    <h1 id="vTitle"></h1>
+    <div class="save" id="saveVisit"></div>
+  </div></div>
+  <div class="wrap">
+    <div class="panels">
+      <button class="btn" data-sheet="overview">推動概況<span id="pOverview"></span></button>
+      <button class="btn" data-sheet="basic">基本資料<span id="pBasic"></span></button>
+      <button class="btn" data-sheet="timeline">時間軸<span id="pTimeline"></span></button>
+      <button class="btn" data-sheet="checkout">離校核對<span id="pCheckout"></span></button>
+      <button class="btn" data-sheet="recordings">錄音參照<span id="pRec"></span></button>
+      <button class="btn" data-sheet="report">綜合建議<span id="pReport"></span></button>
+      <button class="btn" data-sheet="export">匯出<span>訪視檔／Word</span></button>
+    </div>
+    <div class="composer">
+      <textarea id="ta" placeholder="記下一句話⋯" enterkeyhint="send" autocomplete="off" aria-label="快速筆記"></textarea>
+      <div class="actions">
+        <button class="btn mark" id="markBtn">標記此刻</button>
+        <span class="hint grow" id="enterHint"></span>
+        <button class="btn primary" id="saveBtn">記下</button>
+      </div>
+    </div>
+    <h2>最近一筆</h2>
+    <div class="card" id="latest"></div>
+  </div>
+</section>
+
+<!-- ===================== 次層面板 ===================== -->
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="bar"><div class="wrap wide">
+    <h1 id="sheetTitle"></h1>
+    <button class="btn small primary" id="closeSheet">完成</button>
+  </div></div>
+  <div class="wrap wide" id="sheetBody"></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="vendor/jszip.min.js"></script>
+<script src="docx-fill.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
