@@ -1,7 +1,7 @@
 /* 入校輔導紀錄｜階段 B：可離線使用的個人版 */
 (async () => {
 'use strict';
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.4.0';
 const SCHEMA = 1;
 const FILE_FORMAT = 'school-visit-record';
 const TZ = 'Asia/Taipei';
@@ -168,19 +168,37 @@ function renderHome(){
       return `<div class="card active-card school"><div class="grow"><div class="name">${esc(sName(s))} ${s?'':'<span class="tag warn">待歸校</span>'}</div>
       <div class="muted tiny">${rocShort(v.date)} · ${hm(v.actualStart)} 開始 · 筆記 ${n} 筆${v.visitNo?` · 第 ${v.visitNo} 次`:''}</div></div>
       <button class="btn primary" data-open="${v.visitId}">繼續訪視</button></div>`; }).join('')}</div>` : '');
-  $('schoolList').innerHTML = S.schools.length ? S.schools.map(s => {
+  const live = S.schools.filter(s => !s.archived), arch = S.schools.filter(s => s.archived);
+  $('schoolList').innerHTML = (live.length ? live.map(s => {
       const fu = openFU(s.schoolId), a = act.find(v => v.schoolId===s.schoolId);
       const last = S.visits.filter(v => v.schoolId===s.schoolId && v.status==='ended').sort((x,y) => x.actualStart < y.actualStart ? 1 : -1)[0];
       return `<div class="school" style="padding:4px 0"><button class="linkish grow" data-school="${s.schoolId}"><div class="name">${esc(s.short||s.name)}${s.demo?' <span class="tag">示範</span>':''}</div>
         <div class="muted tiny">${esc(s.city)} · ${esc(s.name)}${last?` · 上次 ${rocShort(last.date)}（第 ${last.visitNo??'?'} 次）`:''}</div>
         ${fu.length?`<div class="tiny" style="color:var(--warn)">上次未完成 ${fu.length} 項：${esc(fu[0].text)}${fu.length>1?' 等':''}</div>`:''}</button>
         ${a?`<button class="btn" data-open="${a.visitId}">繼續</button>`:`<button class="btn primary" data-start="${s.schoolId}">開始${esc(s.short||s.name)}輔導</button>`}</div>`; }).join('')
-    : `<p class="muted" style="margin:0">尚未建立學校。可先「立即筆記」，或新增學校。</p>`;
+    : `<p class="muted" style="margin:0">${arch.length?'所有學校皆已封存。':'尚未建立學校。可先「立即筆記」，或新增學校。'}</p>`)
+    + (arch.length ? `<details><summary class="tiny muted">已封存 ${arch.length} 所</summary>${arch.map(s => `<div class="list-item"><button class="linkish grow" data-school="${s.schoolId}">${esc(s.short||s.name)} <span class="muted tiny">${esc(s.name)}</span></button></div>`).join('')}</details>` : '');
   const past = S.visits.filter(v => v.status==='ended').sort((a,b) => a.actualStart < b.actualStart ? 1 : -1);
   $('pastList').innerHTML = past.length ? past.map(v => `<div class="list-item"><div class="grow"><b>${esc(sName(school(v.schoolId)))}</b>
-      <div class="muted tiny">${rocShort(v.date)} ${hm(v.actualStart)}–${v.actualEnd?hm(v.actualEnd):''} · 第 ${v.visitNo??'?'} 次</div></div>
+      <div class="muted tiny">${rocShort(v.date)} ${hm(v.actualStart)}–${v.actualEnd?hm(v.actualEnd):''} · 第 ${v.visitNo??'?'} 次 ${!v.demo&&needsExport(v)?'<span class="tag warn">變更未匯出</span>':''}</div></div>
       <button class="btn small" data-open="${v.visitId}">開啟</button></div>`).join('') : `<p class="muted" style="margin:0">尚無。</p>`;
+  renderBackupState();
 }
+/* ----- 備份提醒 ----- */
+let backupInfo = {all:null, visits:{}};
+function visitLatest(v){ const ts = [v.updatedAt, ...S.notes.filter(n=>n.visitId===v.visitId).map(n=>n.updatedAt), ...S.recordings.filter(r=>r.visitId===v.visitId).map(r=>r.updatedAt), ...S.followUps.filter(f=>f.visitId===v.visitId||f.doneVisitId===v.visitId).map(f=>f.updatedAt), ...S.reports.filter(r=>r.visitId===v.visitId).map(r=>r.updatedAt)].filter(Boolean); return ts.sort().pop(); }
+function needsExport(v){ const e = [backupInfo.visits[v.visitId], backupInfo.all].filter(Boolean).sort().pop(); return !e || visitLatest(v) > e; }
+function renderBackupState(){
+  const el = $('backupState'); if(!el) return;
+  const real = S.visits.filter(v => !v.demo), pending = real.filter(needsExport).length;
+  const days = backupInfo.all ? Math.floor((Date.now() - Date.parse(backupInfo.all))/864e5) : null;
+  const old = real.length && (days===null || days >= 7);
+  el.className = 'tiny' + (old||pending ? '' : ' muted');
+  el.style.color = old ? 'var(--danger)' : pending ? 'var(--warn)' : '';
+  el.textContent = (backupInfo.all ? `上次全部備份：${rocShort(ymd(backupInfo.all))} ${hm(backupInfo.all)}（${days===0?'今天':days+' 天前'}）` : '尚未匯出全部備份') + (pending ? `；${pending} 筆訪視有變更尚未匯出` : '') + (old ? '。建議現在匯出一次。' : '');
+}
+async function markExported(vid){ const t = now(); if(vid) backupInfo.visits[vid] = t; else backupInfo.all = t; await saveMeta('backup', backupInfo); renderBackupState(); }
+
 
 /* ======================= 訪視畫面 ======================= */
 const ta = $('ta');
@@ -277,7 +295,7 @@ const TITLES = {overview:'學校推動概況',basic:'基本資料與輔導類別
   recordings:'錄音參照',report:'輔導觀察與綜合建議',export:'匯出',school:'學校資料',import:'匯入預覽'};
 function openSheet(kind, opt={}){
   if(!$('visit').hidden) { restoreFocus = document.activeElement===ta ? [ta.selectionStart,ta.selectionEnd] : null; flushDraft(); }
-  sheetKind = kind; sheetCtx = opt; if(kind==='overview') kp = {code:null, fresh:true};
+  pendingConfirm = null; sheetKind = kind; sheetCtx = opt; if(kind==='overview') kp = {code:null, fresh:true};
   $('sheetTitle').textContent = TITLES[kind];
   $('sheet').hidden = false; $('sheet').scrollTop = 0;
   renderSheet(opt);
@@ -297,7 +315,7 @@ function renderSheet(opt={}){
   b.innerHTML = fn();
   if(!opt.top) $('sheet').scrollTop = keep;
   if(opt.edit){ const t = $('edit-'+opt.edit); if(t){ t.focus(); t.scrollIntoView({block:'center'}); } }
-  if(sheetKind==='settings') refreshOfflineState();
+  if(sheetKind==='settings'){ refreshOfflineState(); checkPersist(false).then(renderPersist); }
 }
 
 /* ----- 推動概況 ----- */
@@ -556,7 +574,7 @@ function checkoutHTML(){
   ${prior.length ? `<h2>前次未完成（${prior.filter(f => f.status==='open').length}）</h2><div class="card">${prior.map(f => fuRow(f,true)).join('')}</div>` : ''}
   <h2>結束訪視</h2>
   <div class="card stack">
-    ${v.actualEnd ? `<div>已於 <b>${hm(v.actualEnd)}</b> 結束。時間可在「基本資料」修改。</div><button class="btn" id="reopen">重新開啟訪視</button>`
+    ${v.actualEnd ? `<div>已於 <b>${hm(v.actualEnd)}</b> 結束。時間可在「基本資料」修改。</div>${needsExport(v)?'<div class="note-box"><b>建議現在匯出訪視檔</b><div class="tiny">紀錄目前只在這台裝置上。匯出後可存到「檔案」或傳到電腦。</div><button class="btn primary" id="expVisit2">匯出訪視檔</button></div>':'<div class="tiny" style="color:var(--ok)">本次紀錄已匯出。</div>'}<button class="btn" id="reopen">重新開啟訪視</button>`
       : `<div class="muted tiny">寫入實際結束時間 ${hm(now())}，之後仍可修改。</div><button class="btn primary" id="endVisit">結束訪視</button>`}
   </div>`;
 }
@@ -601,7 +619,12 @@ function exportHTML(){
     <div class="row"><button class="btn" data-sheet2="overview">返回補填</button>
       <button class="btn primary grow" id="expDocx" ${c.block.length?'disabled':''}>依現況匯出 Word</button></div>
     <div id="docxOut"></div>
-  </div>`;
+  </div>
+  <h2>刪除這筆訪視</h2>
+  <div class="card stack">${pendingConfirm==='delvisit' ? (() => { const n = S.notes.filter(x=>x.visitId===v.visitId).length, r = S.recordings.filter(x=>x.visitId===v.visitId).length, f = S.followUps.filter(x=>x.visitId===v.visitId).length;
+    return `<div class="confirm"><b>確定刪除 ${esc(sName(s))} ${rocShort(v.date)} 這筆訪視？</b><div class="tiny">將一併刪除筆記 ${n} 筆、錄音參照 ${r} 段、本次提出的追蹤 ${f} 項與綜合建議；本次勾選完成的前次追蹤會恢復為未完成。刪除後無法復原。</div>
+      ${needsExport(v)?'<div class="tiny" style="color:var(--danger)">這筆訪視有變更尚未匯出。</div>':''}<div class="row"><button class="btn" id="expVisit3">先匯出訪視檔</button><button class="btn danger" id="delVisitYes">刪除</button><button class="btn ghost" id="cancelConfirm">取消</button></div></div>`; })()
+    : `<div class="tiny muted">用於誤建或試用的訪視。其他訪視與學校資料不受影響。</div><button class="btn danger" id="delVisitAsk">刪除這筆訪視…</button>`}</div>`;
 }
 function docxName(v){
   const s = school(v.schoolId), d = (v.date||'').replace(/-/g,'');
@@ -636,6 +659,7 @@ function schoolHTML(sid){
     <label class="kv"><span>其他別稱（以頓號分隔，供日後行事曆比對）</span><input type="text" id="scAlias" value="${esc((s.aliases||[]).join('、'))}"></label>
     ${(s.nameHistory||[]).length?`<div class="tiny muted">更名歷程：${s.nameHistory.map(h=>`${esc(h.name)}（至 ${rocShort(ymd(h.until))}）`).join('；')}</div>`:''}
     <div class="tiny muted">更名不影響既有訪視；已匯出的歷史 Word 不會改變。</div>
+    <div class="row">${s.archived?`<span class="tag">已封存</span><button class="btn" id="scUnarchive">取消封存</button>`:`<button class="btn" id="scArchive">封存學校</button>`}<span class="tiny muted grow">封存後首頁不再列出，歷史訪視與追蹤仍保留，可隨時取消封存。</span></div>
   </div>
   <h2>訪視歷程（${vs.length}）</h2>
   <div class="card">${vs.map(v => `<div class="list-item"><div class="grow"><b>${rocShort(v.date)}</b> 第 ${v.visitNo??'?'} 次 · ${esc(v.semester)}
@@ -643,6 +667,19 @@ function schoolHTML(sid){
     <button class="btn small" data-open="${v.visitId}">開啟</button></div>`).join('') || '<p class="muted" style="margin:0">尚無。</p>'}</div>
   <h2>追蹤事項</h2>
   <div class="card">${fu.map(f => { const fv = visit(f.visitId); return `<div class="list-item"><div class="grow" style="${f.status==='done'?'color:var(--muted);text-decoration:line-through':''}">${esc(f.text)}<div class="tiny muted">第 ${fv?.visitNo??'?'} 次提出${f.status==='done'?` · 於 ${f.doneAt?rocShort(ymd(f.doneAt)):''} 完成`:''}</div></div></div>`; }).join('') || '<p class="muted" style="margin:0">尚無。</p>'}</div>`;
+}
+
+/* ----- 刪除 ----- */
+function demoSet(){ const sids = new Set(S.schools.filter(s => s.demo).map(s => s.schoolId)); const vids = new Set(S.visits.filter(v => v.demo || sids.has(v.schoolId)).map(v => v.visitId)); return {sids, vids}; }
+function removeRecords(vids, sids){
+  const gone = (store, pred) => { S[store].filter(pred).forEach(o => touch(store, o, true)); S[store] = S[store].filter(o => !pred(o)); };
+  S.followUps.filter(f => vids.has(f.doneVisitId) && !vids.has(f.visitId)).forEach(f => { f.status = 'open'; f.doneAt = null; f.doneVisitId = null; touch('followUps', f); });
+  gone('notes', n => vids.has(n.visitId)); gone('recordings', r => vids.has(r.visitId)); gone('reports', r => vids.has(r.visitId));
+  gone('followUps', f => vids.has(f.visitId) || (sids && sids.has(f.schoolId))); gone('visits', v => vids.has(v.visitId));
+  if(sids) gone('schools', s => sids.has(s.schoolId));
+  vids.forEach(id => { delete drafts[id]; delete backupInfo.visits[id]; saveMeta('draft:'+id, undefined); });
+  saveMeta('backup', backupInfo);
+  return persist();
 }
 
 /* ----- 設定 ----- */
@@ -653,7 +690,7 @@ function settingsHTML(){
     <label class="kv"><span>學期</span><input type="text" id="sSem" value="${esc(settings.semester)}" placeholder="例：115-1"></label>
     <label class="inline"><input type="checkbox" id="sEnter" ${settings.enterSends?'checked':''}> 鍵盤 Enter 直接記下（中文選字時不受影響）</label>
   </div>
-  <h2>離線使用</h2><div class="card stack"><div id="offlineDetail">檢查中…</div></div>
+  <h2>離線使用與本機保存</h2><div class="card stack"><div id="offlineDetail">檢查中…</div><div id="persistDetail" class="tiny"></div></div>
   <h2>備份與還原</h2>
   <div class="card stack">
     <div class="tiny muted">全部備份含所有學校、訪視、筆記、追蹤、錄音參照與綜合建議；不含行事曆授權。還原時會先預覽差異，不會靜默覆寫。</div>
@@ -662,7 +699,9 @@ function settingsHTML(){
   <h2>測試用</h2>
   <div class="card stack">
     <label class="inline"><input type="checkbox" id="sFail" ${Store.simulateFail?'checked':''}> 模擬本機儲存失敗（重新整理後自動解除）</label>
-    <button class="btn" id="loadDemo">加入虛構示範學校</button>
+    ${(() => { const d = demoSet(); if(!d.sids.size) return '<button class="btn" id="loadDemo">加入虛構示範學校</button>';
+      return pendingConfirm==='demo' ? `<div class="confirm"><b>移除示範資料？</b><div class="tiny">將刪除 ${d.sids.size} 所示範學校，以及其下 ${d.vids.size} 筆訪視（含您在示範學校試用時建立的紀錄）。您自己建立的學校與訪視不受影響。</div><div class="row"><button class="btn danger" id="demoYes">移除</button><button class="btn ghost" id="cancelConfirm">取消</button></div></div>`
+        : `<button class="btn" id="demoAsk">移除示範資料（${d.sids.size} 所學校）</button>`; })()}
     ${pendingConfirm==='reset'?`<div class="confirm"><b>確定清除本機所有紀錄？此動作無法復原，建議先匯出全部備份。</b><div class="row"><button class="btn danger" id="resetYes">清除</button><button class="btn ghost" id="resetNo">取消</button></div></div>`
       :`<button class="btn danger" id="resetAsk">清除本機所有紀錄</button>`}
   </div>
@@ -692,7 +731,7 @@ function makeFile(kind, data){
 }
 const jsonBlob = o => new Blob([JSON.stringify(o, null, 1)], {type:'application/json'});
 function visitFileName(v){ const s = school(v.schoolId); return `訪視檔_${(s?(s.short||s.name):'未歸校').replace(/[\\/:*?"<>|\s]/g,'')}_${v.date.replace(/-/g,'')}_${hm(now()).replace(':','')}.json`; }
-function exportAll(){ download(jsonBlob(makeFile('backup', S)), `入校輔導_全部備份_${ymd(now()).replace(/-/g,'')}_${hm(now()).replace(':','')}.json`); }
+function exportAll(){ download(jsonBlob(makeFile('backup', S)), `入校輔導_全部備份_${ymd(now()).replace(/-/g,'')}_${hm(now()).replace(':','')}.json`); markExported(null); }
 
 let importPlan = null;
 function validateFile(o){
@@ -832,9 +871,15 @@ document.addEventListener('click', async e => {
       if(id==='recAdd'){ const st = $('recStart').value; if(!st){ toast('請填起始時間'); return; } r.start = new Date(`${v.date}T${st.length===5?st+':00':st}+08:00`).toISOString(); }
       r.label = (id==='recAdd' && $('recLabel').value.trim()) || `錄音 ${recsOf(v.visitId).length+1}`;
       S.recordings.push(r); touch('recordings', r); await persist(); toast(id==='recNow'?`已記下錄音起點 ${hms(r.start)}`:'已新增錄音參照'); renderSheet({}); break; }
-    case 'expVisit': download(jsonBlob(makeFile('visit', packVisit(v))), visitFileName(v)); break;
+    case 'expVisit': case 'expVisit2': case 'expVisit3': download(jsonBlob(makeFile('visit', packVisit(v))), visitFileName(v)); await markExported(v.visitId); if(id!=='expVisit') renderSheet({}); break;
+    case 'delVisitAsk': pendingConfirm = 'delvisit'; renderSheet({}); break;
+    case 'delVisitYes':{ pendingConfirm = null; const ok = await removeRecords(new Set([v.visitId])); if(!ok){ toast('刪除失敗，資料未變更'); break; } $('sheet').hidden = true; sheetKind = null; goHome(); toast('已刪除這筆訪視'); break; }
+    case 'cancelConfirm': pendingConfirm = null; renderSheet({}); break;
+    case 'demoAsk': pendingConfirm = 'demo'; renderSheet({}); break;
+    case 'demoYes':{ pendingConfirm = null; const d = demoSet(); if(ui.visitId && d.vids.has(ui.visitId)){ ui = {view:'home',visitId:null,sel:null}; saveMeta('ui', ui); $('visit').hidden = true; } await removeRecords(d.vids, d.sids); renderSheet({}); renderHome(); toast('已移除示範資料'); break; }
+    case 'scArchive': case 'scUnarchive':{ const sc = school(sheetCtx.schoolId); sc.archived = id==='scArchive'; touch('schools', sc); await persist(); renderSheet({}); toast(sc.archived?'已封存':'已取消封存'); break; }
     case 'shareVisit':{ const f = new File([jsonBlob(makeFile('visit', packVisit(v)))], visitFileName(v), {type:'application/json'});
-      try{ if(navigator.canShare({files:[f]})) await navigator.share({files:[f], title:'入校輔導訪視檔'}); else toast('此裝置無法分享檔案，請改用匯出'); }catch(err){} break; }
+      try{ if(navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:'入校輔導訪視檔'}); await markExported(v.visitId); } else toast('此裝置無法分享檔案，請改用匯出'); }catch(err){} break; }
     case 'expDocx':{
       t.disabled = true; $('docxOut').innerHTML = '<p class="tiny muted">產生中…</p>';
       try{ await exportDocx(v); $('docxOut').innerHTML = `<p class="tiny" style="color:var(--ok)">已匯出 ${esc(docxName(v))}。</p>`; }
@@ -958,6 +1003,7 @@ async function reloadAll(){
   const meta = Object.fromEntries((all.meta||[]).map(m => [m.key, m.value]));
   settings = Object.assign({author:'',semester:'115-1',enterSends:true}, meta.settings||{});
   ui = Object.assign({view:'home',visitId:null,sel:null}, meta.ui||{});
+  backupInfo = Object.assign({all:null, visits:{}}, meta.backup||{});
   drafts = {}; Object.entries(meta).forEach(([k,val]) => { if(k.startsWith('draft:')) drafts[k.slice(6)] = val; });
   return meta;
 }
@@ -975,6 +1021,22 @@ if(ui.view==='visit' && cur()){
   openVisit(ui.visitId);
   if(ta.value){ const s = ui.sel || [ta.value.length, ta.value.length]; try{ ta.setSelectionRange(s[0], s[1]); }catch(e){} toast('已還原未送出的文字'); }
 } else { $('home').hidden = false; renderHome(); }
+
+/* 申請持續保存：由瀏覽器依其規則決定是否給予 */
+let persistState = null;
+async function checkPersist(ask){
+  try{
+    if(!navigator.storage || !navigator.storage.persisted){ persistState = 'unsupported'; return; }
+    let p = await navigator.storage.persisted();
+    if(!p && ask && navigator.storage.persist) p = await navigator.storage.persist();
+    persistState = p ? 'yes' : 'no';
+  }catch(e){ persistState = 'unsupported'; }
+}
+function renderPersist(){ const el = $('persistDetail'); if(!el) return; const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  el.innerHTML = persistState==='yes' ? '<b style="color:var(--ok)">已取得持續保存</b>：系統不會因空間不足或久未使用而自動清除，但刪除主畫面圖示或清除網站資料仍會刪除紀錄。'
+    : persistState==='no' ? `<b style="color:var(--warn)">尚未取得持續保存</b>（由系統決定）。${standalone?'':'從主畫面圖示開啟較可能取得。'}請定期匯出備份。`
+    : '此瀏覽器無法確認持續保存狀態，請定期匯出備份。'; }
+checkPersist(true).then(renderPersist);
 
 if('serviceWorker' in navigator && location.protocol !== 'file:'){
   navigator.serviceWorker.register('sw.js').then(reg => { swReg = reg; watchUpdates(reg); refreshOfflineState(); }).catch(() => refreshOfflineState());
